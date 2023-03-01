@@ -3,7 +3,7 @@
 import os
 import sys
 
-from pypdf import PdfReader, PdfWriter
+from PyPDF2 import PdfFileReader, PdfFileWriter
 
 from .core import TableList
 from .parsers import Stream, Lattice
@@ -47,9 +47,9 @@ class PDFHandler(object):
             self.password = password
             if sys.version_info[0] < 3:
                 self.password = self.password.encode("ascii")
-        self.pages = self._get_pages(pages)
+        self.pages = self._get_pages(self.filepath, pages)
 
-    def _get_pages(self, pages):
+    def _get_pages(self, filepath, pages):
         """Converts pages string to list of ints.
 
         Parameters
@@ -67,28 +67,23 @@ class PDFHandler(object):
 
         """
         page_numbers = []
-
         if pages == "1":
             page_numbers.append({"start": 1, "end": 1})
         else:
-            with open(self.filepath, "rb") as f:
-                infile = PdfReader(f, strict=False)
-
-                if infile.is_encrypted:
-                    infile.decrypt(self.password)
-
-                if pages == "all":
-                    page_numbers.append({"start": 1, "end": len(infile.pages)})
-                else:
-                    for r in pages.split(","):
-                        if "-" in r:
-                            a, b = r.split("-")
-                            if b == "end":
-                                b = len(infile.pages)
-                            page_numbers.append({"start": int(a), "end": int(b)})
-                        else:
-                            page_numbers.append({"start": int(r), "end": int(r)})
-
+            infile = PdfFileReader(open(filepath, "rb"), strict=False)
+            if infile.isEncrypted:
+                infile.decrypt(self.password)
+            if pages == "all":
+                page_numbers.append({"start": 1, "end": infile.getNumPages()})
+            else:
+                for r in pages.split(","):
+                    if "-" in r:
+                        a, b = r.split("-")
+                        if b == "end":
+                            b = infile.getNumPages()
+                        page_numbers.append({"start": int(a), "end": int(b)})
+                    else:
+                        page_numbers.append({"start": int(r), "end": int(r)})
         P = []
         for p in page_numbers:
             P.extend(range(p["start"], p["end"] + 1))
@@ -108,14 +103,14 @@ class PDFHandler(object):
 
         """
         with open(filepath, "rb") as fileobj:
-            infile = PdfReader(fileobj, strict=False)
-            if infile.is_encrypted:
+            infile = PdfFileReader(fileobj, strict=False)
+            if infile.isEncrypted:
                 infile.decrypt(self.password)
-            fpath = os.path.join(temp, f"page-{page}.pdf")
+            fpath = os.path.join(temp, "page-{0}.pdf".format(page))
             froot, fext = os.path.splitext(fpath)
-            p = infile.pages[page - 1]
-            outfile = PdfWriter()
-            outfile.add_page(p)
+            p = infile.getPage(page - 1)
+            outfile = PdfFileWriter()
+            outfile.addPage(p)
             with open(fpath, "wb") as f:
                 outfile.write(f)
             layout, dim = get_page_layout(fpath)
@@ -127,20 +122,18 @@ class PDFHandler(object):
             if rotation != "":
                 fpath_new = "".join([froot.replace("page", "p"), "_rotated", fext])
                 os.rename(fpath, fpath_new)
-                instream = open(fpath_new, "rb")
-                infile = PdfReader(instream, strict=False)
-                if infile.is_encrypted:
+                infile = PdfFileReader(open(fpath_new, "rb"), strict=False)
+                if infile.isEncrypted:
                     infile.decrypt(self.password)
-                outfile = PdfWriter()
-                p = infile.pages[0]
+                outfile = PdfFileWriter()
+                p = infile.getPage(0)
                 if rotation == "anticlockwise":
-                    p.rotate(90)
+                    p.rotateClockwise(90)
                 elif rotation == "clockwise":
-                    p.rotate(-90)
-                outfile.add_page(p)
+                    p.rotateCounterClockwise(90)
+                outfile.addPage(p)
                 with open(fpath, "wb") as f:
                     outfile.write(f)
-                instream.close()
 
     def parse(
         self, flavor="lattice", suppress_stdout=False, layout_kwargs={}, **kwargs
@@ -170,11 +163,16 @@ class PDFHandler(object):
         with TemporaryDirectory() as tempdir:
             for p in self.pages:
                 self._save_page(self.filepath, p, tempdir)
-            pages = [os.path.join(tempdir, f"page-{p}.pdf") for p in self.pages]
+            pages = [
+                os.path.join(tempdir, "page-{0}.pdf".format(p)) for p in self.pages
+            ]
             parser = Lattice(**kwargs) if flavor == "lattice" else Stream(**kwargs)
             for p in pages:
                 t = parser.extract_tables(
-                    p, suppress_stdout=suppress_stdout, layout_kwargs=layout_kwargs
+                    p, kwargs['abby'],kwargs['keywords'],kwargs["row_postprocessing"],kwargs["col_postprocessing"],kwargs["row_align"],kwargs["h_and_f"],suppress_stdout=suppress_stdout, layout_kwargs=layout_kwargs
                 )
                 tables.extend(t)
-        return TableList(sorted(tables))
+        if kwargs["h_and_f"] is True:
+            return tables
+        else:
+            return TableList(sorted(tables))

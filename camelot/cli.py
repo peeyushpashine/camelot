@@ -43,7 +43,7 @@ pass_config = click.make_pass_decorator(Config)
 @click.option(
     "-f",
     "--format",
-    type=click.Choice(["csv", "excel", "html", "json", "markdown", "sqlite"]),
+    type=click.Choice(["csv", "json", "excel", "html", "sqlite"]),
     help="Output file format.",
 )
 @click.option("-z", "--zip", is_flag=True, help="Create ZIP archive.")
@@ -204,7 +204,7 @@ def lattice(c, *args, **kwargs):
     tables = read_pdf(
         filepath, pages=pages, flavor="lattice", suppress_stdout=quiet, **kwargs
     )
-    click.echo(f"Found {tables.n} tables")
+    click.echo("Found {} tables".format(tables.n))
     if plot_type is not None:
         for table in tables:
             plot(table, kind=plot_type)
@@ -295,7 +295,7 @@ def stream(c, *args, **kwargs):
     tables = read_pdf(
         filepath, pages=pages, flavor="stream", suppress_stdout=quiet, **kwargs
     )
-    click.echo(f"Found {tables.n} tables")
+    click.echo("Found {} tables".format(tables.n))
     if plot_type is not None:
         for table in tables:
             plot(table, kind=plot_type)

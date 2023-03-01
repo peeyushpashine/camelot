@@ -34,18 +34,16 @@ class PlotMethods(object):
             raise ImportError("matplotlib is required for plotting.")
 
         if table.flavor == "lattice" and kind in ["textedge"]:
-            raise NotImplementedError(f"Lattice flavor does not support kind='{kind}'")
+            raise NotImplementedError(
+                "Lattice flavor does not support kind='{}'".format(kind)
+            )
         elif table.flavor == "stream" and kind in ["joint", "line"]:
-            raise NotImplementedError(f"Stream flavor does not support kind='{kind}'")
+            raise NotImplementedError(
+                "Stream flavor does not support kind='{}'".format(kind)
+            )
 
         plot_method = getattr(self, kind)
-        fig = plot_method(table)
-
-        if filename is not None:
-            fig.savefig(filename)
-            return None
-
-        return fig
+        return plot_method(table)
 
     def text(self, table):
         """Generates a plot for all text elements present
