@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+from __future__ import division
 
-import os
 import re
+import os
+import sys
 import random
 import shutil
 import string
@@ -27,9 +29,16 @@ from pdfminer.layout import (
     LTImage,
 )
 
-from urllib.request import Request, urlopen
-from urllib.parse import urlparse as parse_url
-from urllib.parse import uses_relative, uses_netloc, uses_params
+
+PY3 = sys.version_info[0] >= 3
+if PY3:
+    from urllib.request import urlopen
+    from urllib.parse import urlparse as parse_url
+    from urllib.parse import uses_relative, uses_netloc, uses_params
+else:
+    from urllib2 import urlopen
+    from urlparse import urlparse as parse_url
+    from urlparse import uses_relative, uses_netloc, uses_params
 
 
 _VALID_URLS = set(uses_relative + uses_netloc + uses_params)
@@ -79,12 +88,13 @@ def download_url(url):
         Temporary filepath.
 
     """
-    filename = f"{random_string(6)}.pdf"
+    filename = "{}.pdf".format(random_string(6))
     with tempfile.NamedTemporaryFile("wb", delete=False) as f:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        request = Request(url, None, headers)
-        obj = urlopen(request)
-        content_type = obj.info().get_content_type()
+        obj = urlopen(url)
+        if PY3:
+            content_type = obj.info().get_content_type()
+        else:
+            content_type = obj.info().getheader("Content-Type")
         if content_type != "application/pdf":
             raise NotImplementedError("File format not supported")
         f.write(obj.read())
@@ -113,7 +123,9 @@ def validate_input(kwargs, flavor="lattice"):
         isec = set(parser_kwargs).intersection(set(input_kwargs.keys()))
         if isec:
             raise ValueError(
-                f"{','.join(sorted(isec))} cannot be used with flavor='{flavor}'"
+                "{} cannot be used with flavor='{}'".format(
+                    ",".join(sorted(isec)), flavor
+                )
             )
 
     if flavor == "lattice":
@@ -353,7 +365,7 @@ def text_in_bbox(bbox, text):
     Returns
     -------
     t_bbox : list
-        List of PDFMiner text objects that lie inside table, discarding the overlapping ones
+        List of PDFMiner text objects that lie inside table.
 
     """
     lb = (bbox[0], bbox[1])
@@ -364,97 +376,7 @@ def text_in_bbox(bbox, text):
         if lb[0] - 2 <= (t.x0 + t.x1) / 2.0 <= rt[0] + 2
         and lb[1] - 2 <= (t.y0 + t.y1) / 2.0 <= rt[1] + 2
     ]
-
-    # Avoid duplicate text by discarding overlapping boxes
-    rest = {t for t in t_bbox}
-    for ba in t_bbox:
-        for bb in rest.copy():
-            if ba == bb:
-                continue
-            if bbox_intersect(ba, bb):
-                # if the intersection is larger than 80% of ba's size, we keep the longest
-                if (bbox_intersection_area(ba, bb) / bbox_area(ba)) > 0.8:
-                    if bbox_longer(bb, ba):
-                        rest.discard(ba)
-    unique_boxes = list(rest)
-
-    return unique_boxes
-
-
-def bbox_intersection_area(ba, bb) -> float:
-    """Returns area of the intersection of the bounding boxes of two PDFMiner objects.
-
-    Parameters
-    ----------
-    ba : PDFMiner text object
-    bb : PDFMiner text object
-
-    Returns
-    -------
-    intersection_area : float
-        Area of the intersection of the bounding boxes of both objects
-
-    """
-    x_left = max(ba.x0, bb.x0)
-    y_top = min(ba.y1, bb.y1)
-    x_right = min(ba.x1, bb.x1)
-    y_bottom = max(ba.y0, bb.y0)
-
-    if x_right < x_left or y_bottom > y_top:
-        return 0.0
-
-    intersection_area = (x_right - x_left) * (y_top - y_bottom)
-    return intersection_area
-
-
-def bbox_area(bb) -> float:
-    """Returns area of the bounding box of a PDFMiner object.
-
-    Parameters
-    ----------
-    bb : PDFMiner text object
-
-    Returns
-    -------
-    area : float
-        Area of the bounding box of the object
-
-    """
-    return (bb.x1 - bb.x0) * (bb.y1 - bb.y0)
-
-
-def bbox_intersect(ba, bb) -> bool:
-    """Returns True if the bounding boxes of two PDFMiner objects intersect.
-
-    Parameters
-    ----------
-    ba : PDFMiner text object
-    bb : PDFMiner text object
-
-    Returns
-    -------
-    overlaps : bool
-        True if the bounding boxes intersect
-
-    """
-    return ba.x1 >= bb.x0 and bb.x1 >= ba.x0 and ba.y1 >= bb.y0 and bb.y1 >= ba.y0
-
-
-def bbox_longer(ba, bb) -> bool:
-    """Returns True if the bounding box of the first PDFMiner object is longer or equal to the second.
-
-    Parameters
-    ----------
-    ba : PDFMiner text object
-    bb : PDFMiner text object
-
-    Returns
-    -------
-    longer : bool
-        True if the bounding box of the first object is longer or equal
-
-    """
-    return (ba.x1 - ba.x0) >= (bb.x1 - bb.x0)
+    return t_bbox
 
 
 def merge_close_lines(ar, line_tol=2):
@@ -501,7 +423,7 @@ def text_strip(text, strip=""):
         return text
 
     stripped = re.sub(
-        fr"[{''.join(map(re.escape, strip))}]", "", text, flags=re.UNICODE
+        r"[{}]".format("".join(map(re.escape, strip))), "", text, re.UNICODE
     )
     return stripped
 
@@ -738,7 +660,9 @@ def get_table_index(
                 text_range = (t.x0, t.x1)
                 col_range = (table.cols[0][0], table.cols[-1][1])
                 warnings.warn(
-                    f"{text} {text_range} does not lie in column range {col_range}"
+                    "{} {} does not lie in column range {}".format(
+                        text, text_range, col_range
+                    )
                 )
             r_idx = r
             c_idx = lt_col_overlap.index(max(lt_col_overlap))
@@ -838,27 +762,23 @@ def compute_whitespace(d):
 
 def get_page_layout(
     filename,
-    line_overlap=0.5,
     char_margin=1.0,
     line_margin=0.5,
     word_margin=0.1,
-    boxes_flow=0.5,
     detect_vertical=True,
     all_texts=True,
 ):
     """Returns a PDFMiner LTPage object and page dimension of a single
-    page pdf. To get the definitions of kwargs, see
-    https://pdfminersix.rtfd.io/en/latest/reference/composable.html.
+    page pdf. See https://euske.github.io/pdfminer/ to get definitions
+    of kwargs.
 
     Parameters
     ----------
     filename : string
         Path to pdf file.
-    line_overlap : float
     char_margin : float
     line_margin : float
     word_margin : float
-    boxes_flow : float
     detect_vertical : bool
     all_texts : bool
 
@@ -874,15 +794,11 @@ def get_page_layout(
         parser = PDFParser(f)
         document = PDFDocument(parser)
         if not document.is_extractable:
-            raise PDFTextExtractionNotAllowed(
-                f"Text extraction is not allowed: {filename}"
-            )
+            raise PDFTextExtractionNotAllowed
         laparams = LAParams(
-            line_overlap=line_overlap,
             char_margin=char_margin,
             line_margin=line_margin,
             word_margin=word_margin,
-            boxes_flow=boxes_flow,
             detect_vertical=detect_vertical,
             all_texts=all_texts,
         )
